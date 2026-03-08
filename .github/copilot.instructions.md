@@ -1,5 +1,14 @@
 # OpenClaw Codebase Patterns
 
+## User Safety Mandate (Personal Desktop / Hobby Use)
+
+- This repository is being used by a single trusted operator on a personal desktop for hobby testing.
+- Before proposing, executing, or asking the user to execute any command that can change system state, network exposure, credentials, files, services, or security posture, provide a detailed explanation first.
+- That explanation must include: what the command does, why it is needed, potential risks, and a safer/minimal alternative when possible.
+- Require explicit user confirmation before proceeding with potentially unsafe or destructive actions.
+- If a command appears unsafe, over-privileged, or unnecessary for the stated goal, do not proceed; suggest a safer approach.
+- Default to least privilege and minimal scope changes.
+
 **Always reuse existing code - no redundancy!**
 
 ## Tech Stack
