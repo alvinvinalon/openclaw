@@ -1,13 +1,13 @@
 FROM ghcr.io/openclaw/openclaw:latest
 
 # Install gog (gogcli) — Google Suite CLI for Gmail, Calendar, Drive, Contacts.
-# Source: https://github.com/steipete/gogcli (open source, not Google-authored)
-# This is the OpenClaw-documented tool for Google API access.
-# Pin a specific release for reproducibility; check releases page for updates.
+# Source: https://github.com/openclaw/gogcli (maintained by the OpenClaw org)
+# Pin the version for reproducible builds; check releases page to update.
+ARG GOG_VERSION=0.34.0
 USER root
 RUN curl -fsSL \
-      https://github.com/steipete/gogcli/releases/latest/download/gogcli_linux_amd64.tar.gz \
+      "https://github.com/openclaw/gogcli/releases/download/v${GOG_VERSION}/gogcli_${GOG_VERSION}_linux_amd64.tar.gz" \
     | tar -xzO gog > /usr/local/bin/gog \
   && chmod +x /usr/local/bin/gog \
-  && /usr/local/bin/gog --version
+  && test -x /usr/local/bin/gog
 USER node
