@@ -1,4 +1,7 @@
-import type { GhosttyTerminalController } from "@openclaw/libterminal/browser";
+import type {
+  createTerminalDefaultColorQueryResponder,
+  GhosttyTerminalController,
+} from "@openclaw/libterminal/browser";
 // Dockable operator terminal panel for the Control UI shell.
 //
 // Renders a VS Code-style shell dock (bottom by default, or right) with session
@@ -41,13 +44,14 @@ import {
   type TerminalTabReadinessState,
 } from "./terminal-tab-readiness.ts";
 import { TerminalTaskQueue } from "./terminal-task-queue.ts";
-import { terminalTheme } from "./terminal-theme.ts";
+import { terminalDynamicColors, terminalTheme } from "./terminal-theme.ts";
 
 type TerminalDock = DockPanelSide;
 type TerminalTabState = TerminalPanelTab &
   TerminalTabReadinessState & {
     gatewaySessionId: string;
     pendingInput: StartupInputBuffer;
+    defaultColorQueries: ReturnType<typeof createTerminalDefaultColorQueryResponder>;
     controller: GhosttyTerminalController;
     shell: string;
     host: HTMLDivElement;
@@ -79,6 +83,14 @@ const TERMINAL_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Symbols Nerd Font Mono", "MesloLGLDZ Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "Liberation Mono", monospace';
 const TERMINAL_OUTPUT_ENCODER = new TextEncoder();
 const CATALOG_TERMINAL_READY_TIMEOUT_MS = 30_000;
+
+function forceTerminalRender(controller: GhosttyTerminalController): void {
+  const term = controller.terminal;
+  if (term.renderer && term.wasmTerm) {
+    // An omitted opacity defaults to 1; repaint without inventing a visible scrollbar.
+    term.renderer.render(term.wasmTerm, true, term.viewportY, term, 0);
+  }
+}
 
 /** `<openclaw-terminal-panel>` — the dockable Control UI shell surface. */
 export class OpenClawTerminalPanel extends OpenClawLitElement {
@@ -212,7 +224,7 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
         const term = tab.controller.terminal;
         if (term.renderer && term.wasmTerm) {
           term.renderer.setTheme(theme);
-          term.renderer.render(term.wasmTerm, true, term.viewportY, term);
+          forceTerminalRender(tab.controller);
         }
       }
     }
@@ -227,7 +239,13 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
             viewport.append(tab.host);
           }
         }
-        this.tabs.find((tab) => tab.id === this.activeId)?.controller.fit();
+        const activeTab = this.tabs.find((tab) => tab.id === this.activeId);
+        if (activeTab) {
+          activeTab.controller.fit();
+          // FitAddon skips unchanged dimensions; force dirty-row rendering to
+          // repair a canvas that was detached while the panel was hidden.
+          forceTerminalRender(activeTab.controller);
+        }
       }
     }
     this.syncLayoutReservation();
@@ -513,6 +531,12 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
       connection,
       () => tabRef.current?.gatewaySessionId,
     );
+    const { createTerminalDefaultColorQueryResponder } =
+      await import("@openclaw/libterminal/browser");
+    const defaultColorQueries = createTerminalDefaultColorQueryResponder({
+      getColors: () => terminalDynamicColors(this.themeMode),
+      reply: (data) => startupInput.onData(TERMINAL_OUTPUT_ENCODER.encode(data)),
+    });
     let controller: GhosttyTerminalController;
     try {
       controller = await this.createTerminal({
@@ -547,6 +571,7 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
       sequence: this.tabSeq,
       gatewaySessionId: "",
       pendingInput: startupInput.buffer,
+      defaultColorQueries,
       shellName: null,
       shell: "",
       agentId: null,
@@ -571,6 +596,7 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
       // connection.open/attach from writing to an already-disposed terminal.
       onData: (data: string) => {
         if (!tab.cancelled) {
+          tab.defaultColorQueries.observe(data);
           tab.controller.write(TERMINAL_OUTPUT_ENCODER.encode(data));
           if (data.length > 0) {
             this.readiness.markReady(tab);
@@ -579,8 +605,12 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
       },
       // A replay is authoritative. Reset parser, screen, and scrollback so a
       // gap cannot leave stale cells or a partial escape sequence behind.
-      onReplay: (data: string) => {
+      onReplay: (data: string, newlyObservedFrom: number) => {
         if (!tab.cancelled) {
+          // Suppress complete historical queries, then answer only the suffix
+          // recovered after a sequence gap. A split query may cross the seam.
+          tab.defaultColorQueries.primeFromReplay(data.slice(0, newlyObservedFrom));
+          tab.defaultColorQueries.observe(data.slice(newlyObservedFrom));
           tab.controller.terminal.reset();
           if (data) {
             tab.controller.write(TERMINAL_OUTPUT_ENCODER.encode(data));
@@ -773,10 +803,14 @@ export class OpenClawTerminalPanel extends OpenClawLitElement {
   private switchTo(tabId: string): void {
     this.activeId = tabId;
     const tab = this.tabs.find((entry) => entry.id === tabId);
-    // Refit after the container becomes visible so cols/rows match the viewport.
+    // Refit and repaint after the container becomes visible. A same-size tab
+    // switch otherwise leaves the newly shown canvas without dirty rows.
     void this.updateComplete.then(() => {
-      tab?.controller.fit();
-      tab?.controller.terminal.focus();
+      if (tab) {
+        tab.controller.fit();
+        forceTerminalRender(tab.controller);
+        tab.controller.terminal.focus();
+      }
     });
   }
 
