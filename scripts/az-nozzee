@@ -1,0 +1,18 @@
+#!/bin/bash
+# Azure CLI wrapper for OpenClaw agent (sp_oc_azure)
+# Authenticates with the nozzee service principal before running az commands.
+# Reads credentials from container environment variables set in .env.
+# Scoped to: rg-my-apps, rg-oc-prototypes
+
+set -e
+
+if ! az account show --subscription "$AZURE_SUBSCRIPTION_ID" --output none 2>/dev/null; then
+    az login --service-principal \
+        -u "$AZURE_CLIENT_ID" \
+        -p "$AZURE_CLIENT_SECRET" \
+        --tenant "$AZURE_TENANT_ID" \
+        --output none
+    az account set --subscription "$AZURE_SUBSCRIPTION_ID" --output none
+fi
+
+exec az "$@"

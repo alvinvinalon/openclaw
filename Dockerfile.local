@@ -10,4 +10,8 @@ RUN curl -fsSL \
     | tar -xzO gog > /usr/local/bin/gog \
   && chmod +x /usr/local/bin/gog \
   && test -x /usr/local/bin/gog
+
+# Install Azure CLI for agent-managed Azure resource provisioning
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
 USER node

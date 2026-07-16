@@ -24,6 +24,37 @@ export OPENCLAW_IMAGE="ghcr.io/openclaw/openclaw:latest"
 
 The setup script runs interactive onboarding: it prompts for provider API keys, generates a gateway token stored in `.env`, and launches the stack via Docker Compose.
 
+## Rebuilding the Local Image
+
+**CRITICAL:** This deployment uses `Dockerfile.local` (extends the pre-built ghcr.io image), NOT the root `Dockerfile` (full TypeScript source compilation).
+
+`docker-compose.override.yml` already redirects `docker compose build` to use `Dockerfile.local`, so both of the following are equivalent and safe:
+
+```bash
+# Option A — explicit (preferred, always unambiguous)
+docker build -f Dockerfile.local -t openclaw-local .
+
+# Option B — also safe because override redirects to Dockerfile.local
+docker compose build
+```
+
+**Never run `docker build .`** (without `-f`) — that uses the root `Dockerfile` and compiles from source.
+
+**Never run `setup.sh` to rebuild** — it is a full bootstrapper that rewrites `.env`.
+
+**Always tag a backup before rebuilding:**
+```bash
+docker tag openclaw-local openclaw-local:backup
+```
+
+If the gateway crashes after a bad build, restore instantly:
+```bash
+docker tag openclaw-local:backup openclaw-local
+docker compose restart openclaw-gateway
+```
+
+**Never change the `FROM` tag in `Dockerfile.local` without verifying schema compatibility.** The state database schema version must be ≤ what the new base image supports. A downgrade (e.g. `:latest` → `:2026.7.1` that supports an older schema) will crash the gateway and may require wiping the state database. See `INCIDENT-2026-07-15-schema-mismatch.md` for the full post-mortem.
+
 ## Common Operations
 
 ```bash
